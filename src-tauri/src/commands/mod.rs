@@ -35,6 +35,18 @@ pub async fn clear_events(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn refresh_runtime_status(
+    state: State<'_, AppState>,
+) -> Result<TrafficWidgetStatus, String> {
+    storage::refresh_runtime_status(&state.pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    storage::traffic_widget_status(&state.pool)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn get_app_locale(state: State<'_, AppState>) -> Result<String, String> {
     storage::get_setting(&state.pool, "app_locale")
         .await

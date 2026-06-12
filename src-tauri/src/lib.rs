@@ -91,6 +91,7 @@ pub fn run() {
             commands::get_dashboard_summary,
             commands::list_events,
             commands::clear_events,
+            commands::refresh_runtime_status,
             commands::get_app_locale,
             commands::set_app_locale,
             commands::get_autostart_enabled,

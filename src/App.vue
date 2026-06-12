@@ -25,6 +25,9 @@ const isWidget = new URLSearchParams(window.location.search).get("widget") === "
 let refreshTimer: number | undefined;
 const autostartEnabled = ref(false);
 const autostartLoading = ref(false);
+const refreshAllLoading = ref(false);
+const runtimeRefreshLoading = ref(false);
+const refreshFeedback = ref("");
 
 const copy = {
   en: {
@@ -88,6 +91,12 @@ const copy = {
     retention: "Database retention: 30 days",
     criticalTimeout: "Critical command timeout: 30 seconds, fail-closed",
     refreshAll: "Refresh all",
+    refreshing: "Refreshing...",
+    refreshDone: "Refreshed",
+    refreshFailed: "Refresh failed",
+    refreshStatus: "Refresh status",
+    statusRefreshDone: "Status refreshed",
+    statusRefreshFailed: "Status refresh failed",
     language: "Language",
     languageDescription: "Switch the app interface language.",
     autostart: "Launch at login",
@@ -171,6 +180,12 @@ const copy = {
     retention: "数据库保留：30 天",
     criticalTimeout: "高风险命令超时：30 秒，默认拒绝",
     refreshAll: "刷新全部",
+    refreshing: "刷新中...",
+    refreshDone: "已刷新",
+    refreshFailed: "刷新失败",
+    refreshStatus: "刷新状态",
+    statusRefreshDone: "状态已刷新",
+    statusRefreshFailed: "状态刷新失败",
     language: "语言",
     languageDescription: "切换应用界面语言。",
     autostart: "开机自启动",
@@ -283,17 +298,42 @@ const trafficDetail = computed(() => {
   return t("readyDetail");
 });
 
-async function refreshAll() {
-  await Promise.all([
-    dashboard.load(),
-    events.load(),
-    channels.load(),
-    hooks.load(),
-    hooks.previewInstall(),
-    approvals.load(),
-    traffic.load(),
-    loadAutostart(),
-  ]);
+async function refreshAll(showFeedback = false) {
+  refreshAllLoading.value = true;
+  if (showFeedback) refreshFeedback.value = t("refreshing");
+  try {
+    await Promise.all([
+      dashboard.load(),
+      events.load(),
+      channels.load(),
+      hooks.load(),
+      hooks.previewInstall(),
+      approvals.load(),
+      traffic.load(),
+      loadAutostart(),
+    ]);
+    if (showFeedback) refreshFeedback.value = t("refreshDone");
+  } catch (error) {
+    console.error("Notice refresh failed", error);
+    if (showFeedback) refreshFeedback.value = t("refreshFailed");
+  } finally {
+    refreshAllLoading.value = false;
+  }
+}
+
+async function refreshRuntimeStatus(showFeedback = false) {
+  runtimeRefreshLoading.value = true;
+  if (showFeedback) refreshFeedback.value = t("refreshing");
+  try {
+    await traffic.refreshRuntimeStatus();
+    await Promise.all([dashboard.load(), events.load(), approvals.load()]);
+    if (showFeedback) refreshFeedback.value = t("statusRefreshDone");
+  } catch (error) {
+    console.error("Notice runtime status refresh failed", error);
+    if (showFeedback) refreshFeedback.value = t("statusRefreshFailed");
+  } finally {
+    runtimeRefreshLoading.value = false;
+  }
 }
 
 async function loadLocale() {
@@ -351,6 +391,13 @@ async function openWidgetMenu(event: MouseEvent) {
   event.stopPropagation();
   const menu = await Menu.new({
     items: [
+      {
+        id: "refresh-runtime-status",
+        text: t("refreshStatus"),
+        action: () => {
+          void refreshRuntimeStatus();
+        },
+      },
       {
         id: "toggle-always-on-top",
         text: traffic.status?.alwaysOnTop === false ? "置顶显示" : "取消置顶",
@@ -587,7 +634,13 @@ watch(active, async (value) => {
                 <p>{{ t("localServer") }}: 127.0.0.1:3746</p>
                 <p>{{ t("retention") }}</p>
                 <p>{{ t("criticalTimeout") }}</p>
-                <n-button @click="refreshAll">{{ t("refreshAll") }}</n-button>
+                <n-space align="center">
+                  <n-button :loading="refreshAllLoading" @click="() => refreshAll(true)">{{ t("refreshAll") }}</n-button>
+                  <n-button secondary :loading="runtimeRefreshLoading" @click="() => refreshRuntimeStatus(true)">
+                    {{ t("refreshStatus") }}
+                  </n-button>
+                  <span class="refresh-feedback">{{ refreshFeedback }}</span>
+                </n-space>
               </n-card>
             </section>
           </n-layout-content>
@@ -666,6 +719,12 @@ watch(active, async (value) => {
 .setting-row p {
   margin: 4px 0 0;
   color: #8ca39b;
+}
+
+.refresh-feedback {
+  min-width: 84px;
+  color: #8ca39b;
+  font-size: 13px;
 }
 
 .traffic-widget {

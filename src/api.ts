@@ -17,6 +17,7 @@ export const api = {
   events: (filter: EventFilter, pagination: Pagination) =>
     invoke<NoticeEvent[]>("list_events", { filter, pagination }),
   clearEvents: () => invoke<void>("clear_events"),
+  refreshRuntimeStatus: () => invoke<TrafficWidgetStatus>("refresh_runtime_status"),
   appLocale: () => invoke<AppLocale>("get_app_locale"),
   setAppLocale: (locale: AppLocale) => invoke<AppLocale>("set_app_locale", { locale }),
   autostartEnabled: () => invoke<boolean>("get_autostart_enabled"),

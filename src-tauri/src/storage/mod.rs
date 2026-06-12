@@ -108,6 +108,36 @@ pub async fn clear_events(pool: &SqlitePool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn refresh_runtime_status(pool: &SqlitePool) -> anyhow::Result<()> {
+    expire_stale_pending_approvals(pool).await?;
+    sqlx::query("UPDATE pending_approvals SET status = 'timed_out' WHERE status = 'pending'")
+        .execute(pool)
+        .await?;
+    sqlx::query(
+        r#"
+        DELETE FROM events
+        WHERE EXISTS (
+          SELECT 1
+          FROM events newer
+          WHERE COALESCE(newer.session_id, newer.id) = COALESCE(events.session_id, events.id)
+            AND (
+              newer.received_at > events.received_at
+              OR (newer.received_at = events.received_at AND newer.id > events.id)
+            )
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    put_setting(
+        pool,
+        "traffic_status_refreshed_at",
+        &Utc::now().to_rfc3339(),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn session_has_failures(
     pool: &SqlitePool,
     session_id: Option<&str>,
@@ -260,12 +290,15 @@ pub async fn bool_setting(
 }
 
 pub async fn traffic_widget_status(pool: &SqlitePool) -> anyhow::Result<TrafficWidgetStatus> {
+    expire_stale_pending_approvals(pool).await?;
     let enabled = bool_setting(pool, "traffic_widget_enabled", true).await?;
     let always_on_top = bool_setting(pool, "traffic_widget_always_on_top", true).await?;
-    let pending_approvals: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending'")
-            .fetch_one(pool)
-            .await?;
+    let pending_approvals: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending' AND expires_at >= ?",
+    )
+    .bind(Utc::now().to_rfc3339())
+    .fetch_one(pool)
+    .await?;
     let latest_event: Option<(String, String)> =
         sqlx::query_as("SELECT title, received_at FROM events ORDER BY received_at DESC LIMIT 1")
             .fetch_optional(pool)
@@ -340,7 +373,14 @@ struct SessionSnapshot {
 }
 
 async fn session_state_counts(pool: &SqlitePool) -> anyhow::Result<SessionStateCounts> {
-    let since = (Utc::now() - Duration::minutes(30)).to_rfc3339();
+    let mut since = Utc::now() - Duration::minutes(30);
+    if let Some(refreshed_at) = get_setting(pool, "traffic_status_refreshed_at").await? {
+        let refreshed_at = parse_time(refreshed_at)?;
+        if refreshed_at > since {
+            since = refreshed_at;
+        }
+    }
+    let since = since.to_rfc3339();
     let rows = sqlx::query(
         r#"
         SELECT COALESCE(session_id, id) AS session_key, title, event_type, level, received_at
@@ -374,7 +414,12 @@ async fn session_state_counts(pool: &SqlitePool) -> anyhow::Result<SessionStateC
             || snapshot.latest_non_stop_level == "error"
         {
             counts.failed += 1;
-        } else if snapshot.latest_non_stop_event_type == "USER_CONFIRM" {
+        } else if snapshot.latest_non_stop_event_type == "USER_CONFIRM"
+            && snapshot
+                .latest_received_at
+                .map(|received_at| received_at >= active_cutoff)
+                .unwrap_or(false)
+        {
             counts.waiting += 1;
         } else if snapshot.latest_title != "Codex task finished"
             && snapshot
@@ -471,12 +516,22 @@ pub async fn create_pending_approval(
 }
 
 pub async fn list_pending_approvals(pool: &SqlitePool) -> anyhow::Result<Vec<PendingApproval>> {
+    expire_stale_pending_approvals(pool).await?;
     let rows = sqlx::query(
-        "SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY created_at DESC",
+        "SELECT * FROM pending_approvals WHERE status = 'pending' AND expires_at >= ? ORDER BY created_at DESC",
     )
+    .bind(Utc::now().to_rfc3339())
     .fetch_all(pool)
     .await?;
     rows.into_iter().map(row_to_approval).collect()
+}
+
+pub async fn expire_stale_pending_approvals(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query("UPDATE pending_approvals SET status = 'timed_out' WHERE status = 'pending' AND expires_at < ?")
+        .bind(Utc::now().to_rfc3339())
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn resolve_approval(pool: &SqlitePool, id: &str, status: &str) -> anyhow::Result<()> {
@@ -558,10 +613,13 @@ fn parse_time(value: String) -> anyhow::Result<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        create_pending_approval, initialize, insert_event, touch_session_activity,
-        traffic_widget_status, ACTIVE_SESSION_TTL_SECONDS,
+        create_pending_approval, initialize, insert_event, list_events, list_pending_approvals,
+        refresh_runtime_status, touch_session_activity, traffic_widget_status,
+        ACTIVE_SESSION_TTL_SECONDS,
     };
-    use crate::domain::{NoticeEvent, NoticeEventType, NoticeLevel, Provider};
+    use crate::domain::{
+        EventFilter, NoticeEvent, NoticeEventType, NoticeLevel, Pagination, Provider,
+    };
     use chrono::{Duration, Utc};
     use tempfile::tempdir;
     use uuid::Uuid;
@@ -592,6 +650,29 @@ mod tests {
         let status = traffic_widget_status(&pool).await.unwrap();
         assert_eq!(status.color, "yellow");
         assert_eq!(status.pending_approvals, 1);
+    }
+
+    #[tokio::test]
+    async fn traffic_status_ignores_expired_pending_approval() {
+        let dir = tempdir().unwrap();
+        let pool = initialize(dir.path()).await.unwrap();
+        create_pending_approval(
+            &pool,
+            "rm -rf /tmp/demo",
+            Some("Notice"),
+            "critical",
+            "rm",
+            -1,
+        )
+        .await
+        .unwrap();
+
+        let status = traffic_widget_status(&pool).await.unwrap();
+        let approvals = list_pending_approvals(&pool).await.unwrap();
+
+        assert_eq!(status.color, "green");
+        assert_eq!(status.pending_approvals, 0);
+        assert!(approvals.is_empty());
     }
 
     #[tokio::test]
@@ -800,17 +881,126 @@ mod tests {
         assert_eq!(status.label, "Running");
     }
 
+    #[tokio::test]
+    async fn traffic_status_ignores_stale_confirmation_event() {
+        let dir = tempdir().unwrap();
+        let pool = initialize(dir.path()).await.unwrap();
+        let mut event = event_with(
+            NoticeEventType::UserConfirm,
+            NoticeLevel::Warning,
+            "Codex needs confirmation",
+        );
+        event.timestamp = Utc::now() - Duration::seconds(ACTIVE_SESSION_TTL_SECONDS + 5);
+        event.received_at = event.timestamp;
+        insert_event(&pool, &event).await.unwrap();
+
+        let status = traffic_widget_status(&pool).await.unwrap();
+
+        assert_eq!(status.color, "green");
+        assert_eq!(status.pending_approvals, 0);
+    }
+
+    #[tokio::test]
+    async fn refresh_runtime_status_resets_pending_state_and_keeps_latest_session_event() {
+        let dir = tempdir().unwrap();
+        let pool = initialize(dir.path()).await.unwrap();
+        create_pending_approval(
+            &pool,
+            "rm -rf /tmp/demo",
+            Some("Notice"),
+            "critical",
+            "rm",
+            30,
+        )
+        .await
+        .unwrap();
+        insert_event(
+            &pool,
+            &event_for_session(
+                "session-a",
+                NoticeEventType::TaskStart,
+                NoticeLevel::Info,
+                "Codex task started",
+            ),
+        )
+        .await
+        .unwrap();
+        insert_event(
+            &pool,
+            &event_for_session(
+                "session-a",
+                NoticeEventType::UserConfirm,
+                NoticeLevel::Warning,
+                "Codex needs confirmation",
+            ),
+        )
+        .await
+        .unwrap();
+        insert_event(
+            &pool,
+            &event_for_session(
+                "session-b",
+                NoticeEventType::TaskFail,
+                NoticeLevel::Error,
+                "Codex tool failed",
+            ),
+        )
+        .await
+        .unwrap();
+
+        refresh_runtime_status(&pool).await.unwrap();
+
+        let status = traffic_widget_status(&pool).await.unwrap();
+        let approvals = list_pending_approvals(&pool).await.unwrap();
+        let events = list_events(
+            &pool,
+            EventFilter {
+                search: None,
+                level: None,
+                project: None,
+            },
+            Pagination {
+                page: 1,
+                page_size: 10,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status.color, "green");
+        assert_eq!(status.pending_approvals, 0);
+        assert!(approvals.is_empty());
+        assert_eq!(events.len(), 2);
+        assert!(events
+            .iter()
+            .any(|event| event.session_id.as_deref() == Some("session-a")
+                && event.title == "Codex needs confirmation"));
+        assert!(events
+            .iter()
+            .any(|event| event.session_id.as_deref() == Some("session-b")
+                && event.title == "Codex tool failed"));
+    }
+
     fn event(level: NoticeLevel) -> NoticeEvent {
         event_with(NoticeEventType::TaskFail, level, "Codex tool failed")
     }
 
     fn event_with(event_type: NoticeEventType, level: NoticeLevel, title: &str) -> NoticeEvent {
+        event_for_session("test", event_type, level, title)
+    }
+
+    fn event_for_session(
+        session_id: &str,
+        event_type: NoticeEventType,
+        level: NoticeLevel,
+        title: &str,
+    ) -> NoticeEvent {
         NoticeEvent {
             id: Uuid::new_v4().to_string(),
             version: 1,
             provider: Provider::Codex,
             event_type,
-            session_id: Some("test".to_string()),
+            session_id: Some(session_id.to_string()),
             run_id: None,
             dedupe_key: None,
             title: title.to_string(),

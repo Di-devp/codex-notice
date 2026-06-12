@@ -36,5 +36,17 @@ export const useTrafficStore = defineStore("traffic", {
         this.error = String(error);
       }
     },
+    async refreshRuntimeStatus() {
+      this.loading = true;
+      this.error = "";
+      try {
+        this.status = await api.refreshRuntimeStatus();
+      } catch (error) {
+        this.error = String(error);
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
   },
 });
