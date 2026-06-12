@@ -212,4 +212,4 @@ Codex Notice 默认只在本机工作：
 
 ## 许可证
 
-[Apache License 2.0](LICENSE)
+[MIT](LICENSE)
