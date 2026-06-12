@@ -1,6 +1,6 @@
 {
   "name": "codex-notice",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A local notification and status-light desktop app for Codex.",
   "license": "MIT",
   "private": true,
