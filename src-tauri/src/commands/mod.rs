@@ -1,13 +1,18 @@
-use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, LogicalSize, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::app_state::AppState;
 use crate::channels::feishu;
 use crate::domain::{
     ChannelConfig, DashboardSummary, EventFilter, HookPreview, HookStatus, NoticeEvent, Pagination,
-    PendingApproval, TrafficWidgetStatus,
+    PendingApproval, PetConfig, TrafficWidgetStatus,
 };
-use crate::{hooks, secret_store, storage};
+use crate::{codex_usage, hooks, pet, secret_store, storage};
+
+const TRAFFIC_WIDGET_WIDTH: f64 = 232.0;
+const TRAFFIC_WIDGET_HEIGHT: f64 = 76.0;
 
 #[tauri::command]
 pub async fn get_dashboard_summary(state: State<'_, AppState>) -> Result<DashboardSummary, String> {
@@ -41,9 +46,23 @@ pub async fn refresh_runtime_status(
     storage::refresh_runtime_status(&state.pool)
         .await
         .map_err(|error| error.to_string())?;
-    storage::traffic_widget_status(&state.pool)
+    codex_usage::invalidate_cache();
+    let snapshot = storage::traffic_widget_status_snapshot(&state.pool)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    sync_pet_when_usage_changes(&state, &snapshot).await;
+    Ok(snapshot.status)
+}
+
+async fn sync_pet_when_usage_changes(
+    state: &State<'_, AppState>,
+    snapshot: &storage::TrafficWidgetStatusSnapshot,
+) {
+    if snapshot.codex_usage_changed {
+        if let Err(error) = pet::sync_status(&state.pool, &snapshot.status).await {
+            eprintln!("Notice pet usage sync failed: {error}");
+        }
+    }
 }
 
 #[tauri::command]
@@ -271,7 +290,34 @@ pub async fn resolve_approval(
 pub async fn get_traffic_widget_status(
     state: State<'_, AppState>,
 ) -> Result<TrafficWidgetStatus, String> {
-    storage::traffic_widget_status(&state.pool)
+    let snapshot = storage::traffic_widget_status_snapshot(&state.pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    sync_pet_when_usage_changes(&state, &snapshot).await;
+    Ok(snapshot.status)
+}
+
+#[tauri::command]
+pub async fn get_pet_config(state: State<'_, AppState>) -> Result<PetConfig, String> {
+    pet::config(&state.pool)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_pet_config(
+    state: State<'_, AppState>,
+    enabled: bool,
+    base_url: Option<String>,
+) -> Result<PetConfig, String> {
+    pet::save_config(&state.pool, enabled, base_url)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn test_pet_connection(state: State<'_, AppState>) -> Result<String, String> {
+    pet::test_connection(&state.pool)
         .await
         .map_err(|error| error.to_string())
 }
@@ -326,6 +372,19 @@ pub async fn set_traffic_widget_always_on_top(
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub async fn set_traffic_widget_manual_override(
+    state: State<'_, AppState>,
+    manual_state: Option<String>,
+) -> Result<TrafficWidgetStatus, String> {
+    storage::set_traffic_widget_manual_override(&state.pool, manual_state)
+        .await
+        .map_err(|error| error.to_string())?;
+    storage::traffic_widget_status(&state.pool)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 pub async fn show_traffic_widget_for_state(
     app: &AppHandle,
     state: &AppState,
@@ -338,6 +397,7 @@ pub async fn show_traffic_widget_for_state(
 
 pub fn show_traffic_widget(app: &AppHandle, always_on_top: bool) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("traffic-widget") {
+        resize_traffic_widget(&window)?;
         window
             .set_always_on_top(always_on_top)
             .map_err(|error| error.to_string())?;
@@ -351,9 +411,9 @@ pub fn show_traffic_widget(app: &AppHandle, always_on_top: bool) -> Result<(), S
         WebviewUrl::App("index.html?widget=traffic".into()),
     )
     .title("Notice Status")
-    .inner_size(164.0, 66.0)
-    .min_inner_size(164.0, 66.0)
-    .max_inner_size(164.0, 66.0)
+    .inner_size(TRAFFIC_WIDGET_WIDTH, TRAFFIC_WIDGET_HEIGHT)
+    .min_inner_size(TRAFFIC_WIDGET_WIDTH, TRAFFIC_WIDGET_HEIGHT)
+    .max_inner_size(TRAFFIC_WIDGET_WIDTH, TRAFFIC_WIDGET_HEIGHT)
     .resizable(false)
     .decorations(false)
     .transparent(true)
@@ -364,6 +424,17 @@ pub fn show_traffic_widget(app: &AppHandle, always_on_top: bool) -> Result<(), S
     .map_err(|error| error.to_string())?;
 
     Ok(())
+}
+
+fn resize_traffic_widget(window: &WebviewWindow) -> Result<(), String> {
+    let size = LogicalSize::new(TRAFFIC_WIDGET_WIDTH, TRAFFIC_WIDGET_HEIGHT);
+    window
+        .set_min_size(Some(size))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_max_size(Some(size))
+        .map_err(|error| error.to_string())?;
+    window.set_size(size).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

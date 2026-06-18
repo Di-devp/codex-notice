@@ -11,7 +11,7 @@ import { useEventsStore } from "./stores/events";
 import { useHookStore } from "./stores/hooks";
 import { useTrafficStore } from "./stores/traffic";
 import { api } from "./api";
-import type { AppLocale, NoticeEvent, PendingApproval } from "./types";
+import type { AppLocale, NoticeEvent, PendingApproval, PetConfig, TrafficWidgetManualState } from "./types";
 
 const active = ref("dashboard");
 const locale = ref<AppLocale>("en");
@@ -28,6 +28,14 @@ const autostartLoading = ref(false);
 const refreshAllLoading = ref(false);
 const runtimeRefreshLoading = ref(false);
 const refreshFeedback = ref("");
+const petConfig = ref<PetConfig | null>(null);
+const petBaseUrl = ref("");
+const petEnabled = ref(false);
+const petLoading = ref(false);
+const petTesting = ref(false);
+const petFeedback = ref("");
+const manualWidgetFeedback = ref("");
+type ManualWidgetSelection = "off" | TrafficWidgetManualState;
 
 const copy = {
   en: {
@@ -87,6 +95,23 @@ const copy = {
     uninstall: "Uninstall",
     runtime: "Runtime",
     trafficDescription: "A floating status light for Codex sessions.",
+    manualWidgetOverride: "Photo status override",
+    manualWidgetOverrideDescription: "Temporarily force the floating widget status without changing event history.",
+    manualWidgetSaved: "Photo status updated",
+    manualStateOff: "Off",
+    manualStateReady: "Ready",
+    manualStateRunning: "Running",
+    manualStateWaiting: "Waiting",
+    manualStateFailed: "Failed",
+    manualStateComplete: "Complete",
+    petIntegration: "Mochi desktop pet",
+    petDescription: "Sync the traffic widget status to your ESP32 Mochi expression screen.",
+    petAddress: "Mochi URL",
+    petAddressPlaceholder: "192.168.1.23 or http://192.168.1.23",
+    petEnabled: "Enable pet sync",
+    testPet: "Test pet",
+    petSaved: "Pet sync saved",
+    petTestSent: "Pet test sent",
     localServer: "Local server",
     retention: "Database retention: 30 days",
     criticalTimeout: "Critical command timeout: 30 seconds, fail-closed",
@@ -107,6 +132,7 @@ const copy = {
     simplifiedChinese: "Simplified Chinese",
     english: "English",
     widgetTitleSuffix: "Right-click for options.",
+    codexUsage: "Codex usage",
     ready: "Ready",
     watching: "Notice is watching Codex",
     running: "Running",
@@ -176,6 +202,23 @@ const copy = {
     uninstall: "卸载",
     runtime: "运行时",
     trafficDescription: "独立悬浮在桌面的 Codex 会话状态灯。",
+    manualWidgetOverride: "拍照状态覆盖",
+    manualWidgetOverrideDescription: "临时强制小组件状态，不会写入事件历史。",
+    manualWidgetSaved: "拍照状态已更新",
+    manualStateOff: "关闭覆盖",
+    manualStateReady: "就绪",
+    manualStateRunning: "运行中",
+    manualStateWaiting: "等待确认",
+    manualStateFailed: "失败",
+    manualStateComplete: "已完成",
+    petIntegration: "Mochi 桌宠",
+    petDescription: "把红绿灯状态同步到 ESP32 Mochi 表情屏。",
+    petAddress: "Mochi 地址",
+    petAddressPlaceholder: "192.168.1.23 或 http://192.168.1.23",
+    petEnabled: "开启桌宠同步",
+    testPet: "测试桌宠",
+    petSaved: "桌宠同步已保存",
+    petTestSent: "桌宠测试已发送",
     localServer: "本地服务",
     retention: "数据库保留：30 天",
     criticalTimeout: "高风险命令超时：30 秒，默认拒绝",
@@ -196,6 +239,7 @@ const copy = {
     simplifiedChinese: "简体中文",
     english: "英文",
     widgetTitleSuffix: "右键可设置选项。",
+    codexUsage: "Codex 用量",
     ready: "就绪",
     watching: "Notice 正在监听 Codex",
     running: "运行中",
@@ -297,6 +341,46 @@ const trafficDetail = computed(() => {
   if (status.latestEventTitle) return t("completeDetail");
   return t("readyDetail");
 });
+const codexUsageText = computed(() => {
+  const usage = traffic.status?.codexUsage;
+  if (!usage?.primary) return "";
+  const primary = formatUsageWindow(usage.primary);
+  const secondary = usage.secondary ? ` · ${formatUsageWindow(usage.secondary)}` : "";
+  const source =
+    usage.limitId !== "codex"
+      ? `${formatUsageSource(usage)} `
+      : "";
+  return `${source}${primary}${secondary}`;
+});
+const trafficTitle = computed(() => {
+  const usage = codexUsageText.value ? ` ${t("codexUsage")}: ${codexUsageText.value}.` : "";
+  return `${trafficLabel.value}: ${trafficDetail.value}.${usage} ${t("widgetTitleSuffix")}`;
+});
+const manualWidgetSelection = computed<ManualWidgetSelection>(() => traffic.status?.manualOverride ?? "off");
+const manualWidgetStateOptions = computed<Array<{ label: string; value: ManualWidgetSelection }>>(() => [
+  { label: t("manualStateOff"), value: "off" },
+  { label: t("manualStateReady"), value: "ready" },
+  { label: t("manualStateRunning"), value: "running" },
+  { label: t("manualStateWaiting"), value: "waiting" },
+  { label: t("manualStateFailed"), value: "failed" },
+  { label: t("manualStateComplete"), value: "complete" },
+]);
+
+function formatUsageWindow(window: { remainingPercent: number; windowMinutes: number }) {
+  const windowLabel =
+    window.windowMinutes >= 1440
+      ? `${Math.round(window.windowMinutes / 1440)}d`
+      : `${Math.round(window.windowMinutes / 60)}h`;
+  return `${windowLabel} ${Math.round(window.remainingPercent)}%`;
+}
+
+function formatUsageSource(usage: { limitId: string; limitName?: string }) {
+  const raw = usage.limitName || usage.limitId;
+  return raw
+    .replace(/^GPT-\d+(?:\.\d+)?-Codex-/i, "")
+    .replace(/^codex_/i, "")
+    .slice(0, 12);
+}
 
 async function refreshAll(showFeedback = false) {
   refreshAllLoading.value = true;
@@ -311,6 +395,7 @@ async function refreshAll(showFeedback = false) {
       approvals.load(),
       traffic.load(),
       loadAutostart(),
+      loadPetConfig(),
     ]);
     if (showFeedback) refreshFeedback.value = t("refreshDone");
   } catch (error) {
@@ -368,6 +453,62 @@ async function setAutostart(enabled: boolean) {
     autostartEnabled.value = await api.autostartEnabled().catch(() => autostartEnabled.value);
   } finally {
     autostartLoading.value = false;
+  }
+}
+
+async function loadPetConfig() {
+  petLoading.value = true;
+  try {
+    petConfig.value = await api.petConfig();
+    petEnabled.value = petConfig.value.enabled;
+    petBaseUrl.value = petConfig.value.baseUrl ?? "";
+  } catch (error) {
+    console.error("Notice pet config load failed", error);
+  } finally {
+    petLoading.value = false;
+  }
+}
+
+async function savePetConfig() {
+  petLoading.value = true;
+  petFeedback.value = "";
+  try {
+    petConfig.value = await api.savePetConfig(petEnabled.value, petBaseUrl.value);
+    petEnabled.value = petConfig.value.enabled;
+    petBaseUrl.value = petConfig.value.baseUrl ?? "";
+    petFeedback.value = t("petSaved");
+  } catch (error) {
+    console.error("Notice pet config save failed", error);
+    petFeedback.value = String(error);
+  } finally {
+    petLoading.value = false;
+  }
+}
+
+async function testPetConnection() {
+  petTesting.value = true;
+  petFeedback.value = "";
+  try {
+    await savePetConfig();
+    const message = await api.testPetConnection();
+    petConfig.value = await api.petConfig();
+    petFeedback.value = message || t("petTestSent");
+  } catch (error) {
+    console.error("Notice pet test failed", error);
+    petFeedback.value = String(error);
+  } finally {
+    petTesting.value = false;
+  }
+}
+
+async function setManualWidgetSelection(value: ManualWidgetSelection) {
+  manualWidgetFeedback.value = "";
+  try {
+    await traffic.setManualOverride(value === "off" ? undefined : value);
+    manualWidgetFeedback.value = t("manualWidgetSaved");
+  } catch (error) {
+    console.error("Notice manual widget state update failed", error);
+    manualWidgetFeedback.value = String(error);
   }
 }
 
@@ -449,7 +590,7 @@ watch(active, async (value) => {
   if (value === "approvals") await approvals.load();
   if (value === "dashboard") await dashboard.load();
   if (value === "settings") {
-    await Promise.all([traffic.load(), loadAutostart()]);
+    await Promise.all([traffic.load(), loadAutostart(), loadPetConfig()]);
   }
 });
 </script>
@@ -463,7 +604,7 @@ watch(active, async (value) => {
           :class="trafficClass"
           role="button"
           data-tauri-drag-region
-          :title="`${trafficLabel}: ${trafficDetail}. ${t('widgetTitleSuffix')}`"
+          :title="trafficTitle"
           @mousedown="startWidgetDrag"
           @contextmenu="openWidgetMenu"
         >
@@ -475,6 +616,7 @@ watch(active, async (value) => {
           <span class="traffic-copy" data-tauri-drag-region>
             <strong data-tauri-drag-region>{{ trafficLabel }}</strong>
             <small data-tauri-drag-region>{{ trafficDetail }}</small>
+            <small v-if="codexUsageText" class="traffic-usage" data-tauri-drag-region>{{ codexUsageText }}</small>
           </span>
         </div>
 
@@ -503,6 +645,7 @@ watch(active, async (value) => {
                   <div>
                     <strong>{{ trafficLabel }}</strong>
                     <p>{{ trafficDetail }}</p>
+                    <p v-if="codexUsageText">{{ t("codexUsage") }}: {{ codexUsageText }}</p>
                   </div>
                   <n-switch
                     :value="traffic.status?.enabled ?? true"
@@ -620,6 +763,49 @@ watch(active, async (value) => {
                     @update:value="traffic.setEnabled"
                   />
                 </div>
+                <div class="setting-block manual-state-block">
+                  <div>
+                    <strong>{{ t("manualWidgetOverride") }}</strong>
+                    <p>{{ t("manualWidgetOverrideDescription") }}</p>
+                  </div>
+                  <div class="manual-state-buttons" aria-label="Photo status override">
+                    <n-button
+                      v-for="option in manualWidgetStateOptions"
+                      :key="option.value"
+                      size="small"
+                      :type="manualWidgetSelection === option.value ? 'primary' : 'default'"
+                      :secondary="manualWidgetSelection !== option.value"
+                      :loading="traffic.loading && manualWidgetSelection === option.value"
+                      @click="setManualWidgetSelection(option.value)"
+                    >
+                      {{ option.label }}
+                    </n-button>
+                  </div>
+                  <p v-if="manualWidgetFeedback" class="refresh-feedback">{{ manualWidgetFeedback }}</p>
+                </div>
+                <div class="setting-block">
+                  <div class="setting-row">
+                    <div>
+                      <strong>{{ t("petIntegration") }}</strong>
+                      <p>{{ t("petDescription") }}</p>
+                    </div>
+                    <n-switch v-model:value="petEnabled" :loading="petLoading" @update:value="savePetConfig" />
+                  </div>
+                  <n-form label-placement="top">
+                    <n-form-item :label="t('petAddress')">
+                      <n-input
+                        v-model:value="petBaseUrl"
+                        :placeholder="t('petAddressPlaceholder')"
+                        @keyup.enter="savePetConfig"
+                      />
+                    </n-form-item>
+                    <n-space align="center">
+                      <n-button type="primary" :loading="petLoading" @click="savePetConfig">{{ t("save") }}</n-button>
+                      <n-button secondary :loading="petTesting" @click="testPetConnection">{{ t("testPet") }}</n-button>
+                      <span class="refresh-feedback">{{ petFeedback || petConfig?.lastStatus }}</span>
+                    </n-space>
+                  </n-form>
+                </div>
                 <div class="setting-row">
                   <div>
                     <strong>{{ t("autostart") }}</strong>
@@ -721,6 +907,33 @@ watch(active, async (value) => {
   color: #8ca39b;
 }
 
+.manual-state-block {
+  margin: 18px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.manual-state-block strong {
+  display: block;
+  color: #eef2f0;
+  font-size: 14px;
+}
+
+.manual-state-block p {
+  margin: 4px 0 0;
+  color: #8ca39b;
+}
+
+.manual-state-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.manual-state-buttons .n-button {
+  min-width: 76px;
+}
+
 .refresh-feedback {
   min-width: 84px;
   color: #8ca39b;
@@ -729,8 +942,8 @@ watch(active, async (value) => {
 
 .traffic-widget {
   position: relative;
-  width: 156px;
-  height: 58px;
+  width: 224px;
+  height: 68px;
   margin: 4px;
   display: flex;
   align-items: center;
@@ -828,7 +1041,7 @@ watch(active, async (value) => {
 }
 
 .traffic-copy strong {
-  max-width: 104px;
+  max-width: 172px;
   overflow: hidden;
   color: #f7faf8;
   font-size: 12px;
@@ -839,13 +1052,17 @@ watch(active, async (value) => {
 }
 
 .traffic-copy small {
-  max-width: 104px;
+  max-width: 172px;
   overflow: hidden;
   color: #aeb9b5;
   font-size: 10px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.traffic-copy .traffic-usage {
+  color: #d8efe0;
 }
 
 @keyframes trafficPulseRed {

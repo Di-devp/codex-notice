@@ -2,6 +2,8 @@ export type NoticeLevel = "info" | "success" | "warning" | "error";
 
 export type AppLocale = "en" | "zh-CN";
 
+export type TrafficWidgetManualState = "ready" | "running" | "waiting" | "failed" | "complete";
+
 export type NoticeEventType =
   | "TASK_START"
   | "TASK_FINISH"
@@ -94,4 +96,29 @@ export interface TrafficWidgetStatus {
   pendingApprovals: number;
   todayFailures: number;
   latestEventTitle?: string;
+  codexUsage?: CodexUsageStatus;
+  manualOverride?: TrafficWidgetManualState;
+}
+
+export interface CodexUsageStatus {
+  limitId: string;
+  limitName?: string;
+  primary?: CodexUsageWindow;
+  secondary?: CodexUsageWindow;
+  planType?: string;
+  rateLimitReachedType?: string;
+  updatedAt: string;
+}
+
+export interface CodexUsageWindow {
+  usedPercent: number;
+  remainingPercent: number;
+  windowMinutes: number;
+  resetsAt?: string;
+}
+
+export interface PetConfig {
+  enabled: boolean;
+  baseUrl?: string;
+  lastStatus?: string;
 }

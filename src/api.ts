@@ -10,6 +10,8 @@ import type {
   PendingApproval,
   TrafficWidgetStatus,
   AppLocale,
+  PetConfig,
+  TrafficWidgetManualState,
 } from "./types";
 
 export const api = {
@@ -41,4 +43,10 @@ export const api = {
     invoke<TrafficWidgetStatus>("set_traffic_widget_enabled", { enabled }),
   setTrafficWidgetAlwaysOnTop: (alwaysOnTop: boolean) =>
     invoke<TrafficWidgetStatus>("set_traffic_widget_always_on_top", { alwaysOnTop }),
+  setTrafficWidgetManualOverride: (manualState?: TrafficWidgetManualState) =>
+    invoke<TrafficWidgetStatus>("set_traffic_widget_manual_override", { manualState }),
+  petConfig: () => invoke<PetConfig>("get_pet_config"),
+  savePetConfig: (enabled: boolean, baseUrl?: string) =>
+    invoke<PetConfig>("save_pet_config", { enabled, baseUrl }),
+  testPetConnection: () => invoke<string>("test_pet_connection"),
 };

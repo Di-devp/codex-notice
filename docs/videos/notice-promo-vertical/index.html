@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Notice Promo 9x16</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        margin: 0;
+        overflow: hidden;
+        background: #090b0d;
+        color: #f2f5f7;
+        font-family: sans-serif;
+      }
+
+      #root {
+        position: relative;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 8%, rgba(61, 220, 151, 0.14), transparent 28%),
+          linear-gradient(180deg, #0b0d10 0%, #111418 50%, #08090b 100%);
+      }
+
+      .subtitle-layer {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 74px;
+        z-index: 80;
+        display: flex;
+        justify-content: center;
+        padding: 0 64px;
+        pointer-events: none;
+      }
+
+      .subtitle {
+        position: absolute;
+        left: 50%;
+        bottom: 0;
+        width: max-content;
+        max-width: 940px;
+        padding: 16px 26px 18px;
+        border-radius: 20px;
+        background: rgba(7, 10, 12, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+        color: #f6f9fb;
+        font-size: 34px;
+        font-weight: 650;
+        line-height: 1.42;
+        text-align: center;
+        text-wrap: balance;
+        transform: translateX(-50%);
+        backdrop-filter: blur(16px);
+      }
+
+      .scene {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 46px;
+        padding: 92px 72px;
+        opacity: 0;
+      }
+
+      #v1 {
+        opacity: 1;
+      }
+
+      .eyebrow {
+        color: #3ddc97;
+        font-size: 24px;
+        font-weight: 760;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2 {
+        margin: 18px 0 0;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: 74px;
+        font-weight: 760;
+      }
+
+      h2 {
+        font-size: 64px;
+        font-weight: 740;
+      }
+
+      .sub {
+        margin-top: 22px;
+        color: #aab4bf;
+        font-size: 30px;
+        line-height: 1.45;
+        font-weight: 540;
+      }
+
+      .window,
+      .notification,
+      .state-card,
+      .traffic-widget {
+        background: rgba(21, 24, 29, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        box-shadow: 0 28px 82px rgba(0, 0, 0, 0.42);
+      }
+
+      .window {
+        border-radius: 32px;
+        overflow: hidden;
+      }
+
+      .titlebar {
+        height: 58px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 22px;
+        color: #9aa4af;
+        font-size: 20px;
+        font-weight: 650;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .dot,
+      .light {
+        border-radius: 50%;
+      }
+
+      .dot {
+        width: 18px;
+        height: 18px;
+      }
+
+      .red {
+        background: #ff3b30;
+      }
+
+      .yellow {
+        background: #ffcc00;
+      }
+
+      .green {
+        background: #34c759;
+      }
+
+      .terminal {
+        height: 460px;
+        padding: 38px;
+        font-family: monospace;
+        font-size: 24px;
+        line-height: 1.68;
+        color: #d8dee6;
+      }
+
+      .dev-stack {
+        display: grid;
+        gap: 22px;
+      }
+
+      .codex-panel {
+        padding: 26px;
+      }
+
+      .codex-task {
+        margin-bottom: 16px;
+        padding: 18px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.065);
+        font-size: 25px;
+        line-height: 1.35;
+        font-weight: 700;
+      }
+
+      .codex-task span {
+        display: block;
+        margin-top: 8px;
+        color: #8d98a5;
+        font-size: 21px;
+        font-weight: 600;
+      }
+
+      .task-blur {
+        filter: blur(2px);
+        opacity: 0.7;
+      }
+
+      .mini-editor {
+        padding: 24px;
+      }
+
+      .code-line {
+        height: 16px;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(61, 220, 151, 0.74), rgba(255, 255, 255, 0.18));
+      }
+
+      .code-line.short {
+        width: 62%;
+      }
+
+      .code-line.mid {
+        width: 78%;
+      }
+
+      .console-hero {
+        position: relative;
+        width: 936px;
+        height: 720px;
+        border-radius: 34px;
+        overflow: hidden;
+        background: rgba(21, 24, 29, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.44);
+      }
+
+      .console-hero .hero-frame {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        opacity: 0;
+      }
+
+      .console-hero .hero-frame.is-active {
+        opacity: 1;
+      }
+
+      .console-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(8, 10, 12, 0.16), transparent 42%, rgba(8, 10, 12, 0.42)),
+          radial-gradient(circle at 68% 36%, rgba(61, 220, 151, 0.22), transparent 36%);
+      }
+
+      .hero-badge,
+      .floating-status {
+        position: absolute;
+        z-index: 2;
+        border: 1px solid rgba(61, 220, 151, 0.28);
+        background: rgba(9, 13, 16, 0.84);
+        box-shadow: 0 22px 70px rgba(0, 0, 0, 0.42);
+      }
+
+      .hero-badge {
+        top: 34px;
+        right: 34px;
+        padding: 16px 20px;
+        border-radius: 18px;
+        color: #b8f4d8;
+        font-size: 24px;
+        font-weight: 760;
+      }
+
+      .floating-status {
+        left: 34px;
+        right: 34px;
+        bottom: 34px;
+        padding: 24px;
+        border-radius: 24px;
+      }
+
+      .floating-status strong {
+        display: block;
+        color: #f2f5f7;
+        font-size: 32px;
+        line-height: 1.15;
+      }
+
+      .floating-status span {
+        display: block;
+        margin-top: 10px;
+        color: #aab4bf;
+        font-size: 22px;
+        line-height: 1.35;
+        font-weight: 600;
+      }
+
+      .muted {
+        color: #77828e;
+      }
+
+      .ok {
+        color: #3ddc97;
+      }
+
+      .warn {
+        color: #ffcc00;
+      }
+
+      .fail {
+        color: #ff6b61;
+      }
+
+      .traffic-widget {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        width: 540px;
+        padding: 24px;
+        border-radius: 36px;
+      }
+
+      .traffic-stack {
+        width: 52px;
+        height: 132px;
+        border-radius: 28px;
+        padding: 12px 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: space-between;
+        background: #0c1110;
+      }
+
+      .light {
+        width: 26px;
+        height: 26px;
+        background: #2f383d;
+        opacity: 0.35;
+      }
+
+      .is-red {
+        background: #ff3b30;
+      }
+
+      .is-yellow {
+        background: #ffcc00;
+      }
+
+      .is-green {
+        background: #34c759;
+      }
+
+      .yellow-on .is-yellow,
+      .red-on .is-red,
+      .green-on .is-green {
+        opacity: 1;
+        box-shadow: 0 0 26px currentColor;
+      }
+
+      .yellow-on .is-yellow {
+        color: #ffcc00;
+      }
+
+      .red-on .is-red {
+        color: #ff3b30;
+      }
+
+      .green-on .is-green {
+        color: #34c759;
+      }
+
+      .traffic-copy strong {
+        display: block;
+        font-size: 34px;
+      }
+
+      .traffic-copy span {
+        display: block;
+        margin-top: 8px;
+        color: #aab4bf;
+        font-size: 24px;
+        font-weight: 650;
+      }
+
+      .screenshot-wrap {
+        width: 936px;
+        height: 636px;
+        border-radius: 34px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.11);
+        box-shadow: 0 28px 90px rgba(0, 0, 0, 0.44);
+      }
+
+      .screenshot-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top center;
+      }
+
+      .notification {
+        border-radius: 30px;
+        padding: 28px;
+        color: #f2f5f7;
+      }
+
+      .bot-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: #aab4bf;
+        font-size: 22px;
+        font-weight: 650;
+      }
+
+      .bot-icon {
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: #ff7a1a;
+        color: white;
+        font-weight: 800;
+      }
+
+      .message-card {
+        margin-top: 20px;
+        padding: 26px;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.075);
+        font-size: 30px;
+        line-height: 1.55;
+      }
+
+      .brand-scene {
+        align-items: center;
+        text-align: center;
+      }
+
+      .brand-icon {
+        width: 190px;
+        height: 190px;
+        border-radius: 48px;
+        box-shadow: 0 30px 90px rgba(0, 0, 0, 0.38);
+      }
+
+      .brand-title {
+        font-size: 92px;
+        font-weight: 780;
+      }
+
+      .brand-subtitle {
+        font-size: 42px;
+        font-weight: 680;
+      }
+
+      .brand-line {
+        color: #9aa4af;
+        font-size: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="notice-promo-vertical"
+      data-start="0"
+      data-duration="30.768"
+      data-width="1080"
+      data-height="1920"
+    >
+      <audio id="narration-01" data-start="0" data-duration="4.296" data-track-index="5" data-volume="1" src="assets/notice/narration-01.mp3"></audio>
+      <audio id="narration-02" data-start="4.296" data-duration="5.04" data-track-index="6" data-volume="1" src="assets/notice/narration-02.mp3"></audio>
+      <audio id="narration-03" data-start="9.336" data-duration="3.672" data-track-index="7" data-volume="1" src="assets/notice/narration-03.mp3"></audio>
+      <audio id="narration-04" data-start="13.008" data-duration="4.008" data-track-index="8" data-volume="1" src="assets/notice/narration-04.mp3"></audio>
+      <audio id="narration-05" data-start="17.016" data-duration="5.928" data-track-index="9" data-volume="1" src="assets/notice/narration-05.mp3"></audio>
+      <audio id="narration-06" data-start="22.944" data-duration="4.296" data-track-index="10" data-volume="1" src="assets/notice/narration-06.mp3"></audio>
+      <audio id="narration-07" data-start="27.24" data-duration="3.528" data-track-index="11" data-volume="1" src="assets/notice/narration-07.mp3"></audio>
+      <div class="subtitle-layer">
+        <div id="subtitle-01" class="subtitle clip" data-start="0.1" data-duration="4.1" data-track-index="12">Codex 在跑任务时，你真的知道它卡在哪一步吗？</div>
+        <div id="subtitle-02" class="subtitle clip" data-start="4.296" data-duration="5.04" data-track-index="15">Notice 用一个桌面红绿灯，显示 Codex 当前任务状态。</div>
+        <div id="subtitle-03" class="subtitle clip" data-start="9.336" data-duration="3.672" data-track-index="16">新任务开始，小组件自动进入运行态。</div>
+        <div id="subtitle-04" class="subtitle clip" data-start="13.008" data-duration="4.008" data-track-index="17">需要你审批时，亮黄灯，并通过飞书提醒。</div>
+        <div id="subtitle-05" class="subtitle clip" data-start="17.016" data-duration="5.928" data-track-index="18">任务失败，红灯会立刻提示；重新发起任务后，自动恢复运行态。</div>
+        <div id="subtitle-06" class="subtitle clip" data-start="22.944" data-duration="4.296" data-track-index="19">任务成功结束，绿灯亮起，再发送完成通知。</div>
+        <div id="subtitle-07" class="subtitle clip" data-start="27.24" data-duration="3.528" data-track-index="20">Notice，少一点打扰，多一点确定感。</div>
+      </div>
+      <section id="v1" class="scene">
+        <div>
+          <div class="eyebrow">Codex workflow</div>
+          <h1>别再反复切回 Codex</h1>
+          <p class="sub">后台任务跑到哪、要不要确认，直接放到桌面上看。</p>
+        </div>
+        <div class="console-hero">
+          <img class="hero-frame hero-frame-1 is-active" src="assets/notice/codex-console.png" alt="Codex console" />
+          <img class="hero-frame hero-frame-2" src="assets/notice/intro-workflow.svg" alt="Code workflow visual" />
+          <img class="hero-frame hero-frame-3" src="assets/notice/intro-customize.svg" alt="Customizable Notice visual" />
+          <div class="hero-badge">状态看不见？</div>
+          <div class="floating-status">
+            <strong>别再盯着窗口等结果</strong>
+            <span>运行中、待审批、失败和完成状态，直接放到桌面上。</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="v2" class="scene">
+        <div>
+          <div class="eyebrow">Notice</div>
+          <h2>让 Codex 任务状态一眼可见</h2>
+          <p class="sub">桌面红绿灯进入跑马灯状态，表示当前任务正在执行。</p>
+        </div>
+        <div class="traffic-widget">
+          <div class="traffic-stack"><i class="light is-red"></i><i class="light is-yellow"></i><i class="light is-green"></i></div>
+          <div class="traffic-copy"><strong>运行中</strong><span>1 个 Codex 会话运行中</span></div>
+        </div>
+      </section>
+
+      <section id="v3" class="scene">
+        <div class="screenshot-wrap"><img src="assets/notice/running.png" alt="running" /></div>
+        <div>
+          <div class="eyebrow">Running</div>
+          <h2>新任务开始，自动进入运行态</h2>
+        </div>
+      </section>
+
+      <section id="v4" class="scene">
+        <div class="traffic-widget yellow-on">
+          <div class="traffic-stack"><i class="light is-red"></i><i class="light is-yellow"></i><i class="light is-green"></i></div>
+          <div class="traffic-copy"><strong>待审批</strong><span>需要你确认权限</span></div>
+        </div>
+        <div>
+          <div class="eyebrow">Approval</div>
+          <h2>需要你确认时，才提醒你</h2>
+        </div>
+        <div class="notification">
+          <div class="bot-row"><span class="bot-icon">N</span><span>Codex-Notice 机器人</span></div>
+          <div class="message-card"><strong>Codex needs confirmation</strong><br />项目：Notice workspace</div>
+        </div>
+      </section>
+
+      <section id="v5" class="scene">
+        <div class="traffic-widget red-on">
+          <div class="traffic-stack"><i class="light is-red"></i><i class="light is-yellow"></i><i class="light is-green"></i></div>
+          <div class="traffic-copy"><strong>失败</strong><span>重新发起后自动恢复</span></div>
+        </div>
+        <div>
+          <div class="eyebrow">Recover</div>
+          <h2>失败清晰可见，新的任务会清除旧红灯</h2>
+        </div>
+      </section>
+
+      <section id="v6" class="scene">
+        <div class="screenshot-wrap"><img src="assets/notice/done.png" alt="done" /></div>
+        <div>
+          <div class="eyebrow">Finished</div>
+          <h2>任务完成，再通知你</h2>
+        </div>
+        <div class="notification">
+          <div class="bot-row"><span class="bot-icon">N</span><span>Codex-Notice 机器人</span></div>
+          <div class="message-card"><strong>Codex task finished</strong><br />Stop received from Codex</div>
+        </div>
+      </section>
+
+      <section id="v7" class="scene brand-scene">
+        <img class="brand-icon" src="assets/notice/icon.png" alt="Notice icon" />
+        <div class="brand-title">Notice</div>
+        <div class="brand-subtitle">Codex 任务状态，一眼看清。</div>
+        <div class="brand-line">少一点打扰，多一点确定感。</div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const scenes = ["#v1", "#v2", "#v3", "#v4", "#v5", "#v6", "#v7"];
+      scenes.slice(1).forEach((scene) => tl.set(scene, { opacity: 0 }, 0));
+      function scene(selector, start, duration) {
+        if (start > 0) {
+          tl.set(selector, { opacity: 1 }, start);
+          const entranceSelector =
+            selector === "#v4" || selector === "#v6" ? `${selector} > *:not(.notification)` : `${selector} > *`;
+          tl.from(entranceSelector, { y: 36, opacity: 0, stagger: 0.12, duration: 0.58, ease: "power3.out" }, start + 0.18);
+        }
+        tl.to(selector, { opacity: 0, duration: 0.48, ease: "power2.inOut" }, start + duration - 0.48);
+      }
+      scene("#v1", 0, 4.296);
+      tl.to("#v1 .hero-frame-1", { opacity: 0, duration: 0.52, ease: "power2.inOut" }, 1.4);
+      tl.to("#v1 .hero-frame-2", { opacity: 1, duration: 0.52, ease: "power2.inOut" }, 1.4);
+      tl.to("#v1 .hero-frame-2", { opacity: 0, duration: 0.52, ease: "power2.inOut" }, 2.8);
+      tl.to("#v1 .hero-frame-3", { opacity: 1, duration: 0.52, ease: "power2.inOut" }, 2.8);
+      tl.from("#v1 .hero-badge", { opacity: 0, y: -16, duration: 0.48, ease: "power2.out", immediateRender: false }, 1.0);
+      tl.from("#v1 .floating-status", { opacity: 0, y: 24, duration: 0.58, ease: "power3.out", immediateRender: false }, 2.0);
+      scene("#v2", 4.296, 5.04);
+      tl.to("#v2 .is-red", { opacity: 1, boxShadow: "0 0 24px #ff3b30", duration: 0.26, yoyo: true, repeat: 6 }, 4.82);
+      tl.to("#v2 .is-yellow", { opacity: 1, boxShadow: "0 0 24px #ffcc00", duration: 0.26, yoyo: true, repeat: 6 }, 5.1);
+      tl.to("#v2 .is-green", { opacity: 1, boxShadow: "0 0 24px #34c759", duration: 0.26, yoyo: true, repeat: 6 }, 5.38);
+      scene("#v3", 9.336, 3.672);
+      scene("#v4", 13.008, 4.008);
+      scene("#v5", 17.016, 5.928);
+      scene("#v6", 22.944, 4.296);
+      scene("#v7", 27.24, 3.528);
+      tl.set("#v7", { opacity: 1 }, 30.29);
+      window.__timelines["notice-promo-vertical"] = tl;
+    </script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "../api";
-import type { TrafficWidgetStatus } from "../types";
+import type { TrafficWidgetManualState, TrafficWidgetStatus } from "../types";
 
 export const useTrafficStore = defineStore("traffic", {
   state: () => ({
@@ -34,6 +34,18 @@ export const useTrafficStore = defineStore("traffic", {
         this.status = await api.setTrafficWidgetAlwaysOnTop(alwaysOnTop);
       } catch (error) {
         this.error = String(error);
+      }
+    },
+    async setManualOverride(manualState?: TrafficWidgetManualState) {
+      this.loading = true;
+      this.error = "";
+      try {
+        this.status = await api.setTrafficWidgetManualOverride(manualState);
+      } catch (error) {
+        this.error = String(error);
+        throw error;
+      } finally {
+        this.loading = false;
       }
     },
     async refreshRuntimeStatus() {

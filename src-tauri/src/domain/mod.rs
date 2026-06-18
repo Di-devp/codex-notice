@@ -163,6 +163,37 @@ pub struct TrafficWidgetStatus {
     pub pending_approvals: i64,
     pub today_failures: i64,
     pub latest_event_title: Option<String>,
+    pub codex_usage: Option<CodexUsageStatus>,
+    pub manual_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexUsageStatus {
+    pub limit_id: String,
+    pub limit_name: Option<String>,
+    pub primary: Option<CodexUsageWindow>,
+    pub secondary: Option<CodexUsageWindow>,
+    pub plan_type: Option<String>,
+    pub rate_limit_reached_type: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexUsageWindow {
+    pub used_percent: f64,
+    pub remaining_percent: f64,
+    pub window_minutes: i64,
+    pub resets_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetConfig {
+    pub enabled: bool,
+    pub base_url: Option<String>,
+    pub last_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

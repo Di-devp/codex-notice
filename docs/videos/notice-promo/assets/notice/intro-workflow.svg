@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="950" viewBox="0 0 1400 950">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0d10"/>
+      <stop offset="0.55" stop-color="#14181d"/>
+      <stop offset="1" stop-color="#07090b"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ddc97"/>
+      <stop offset="1" stop-color="#b8f4d8"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.24 0 0 0 0 0.86 0 0 0 0 0.59 0 0 0 0.38 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+  </defs>
+  <rect width="1400" height="950" rx="44" fill="url(#bg)"/>
+  <g opacity="0.14">
+    <path d="M0 160H1400M0 320H1400M0 480H1400M0 640H1400M0 800H1400" stroke="#fff"/>
+    <path d="M180 0V950M360 0V950M540 0V950M720 0V950M900 0V950M1080 0V950M1260 0V950" stroke="#fff"/>
+  </g>
+  <circle cx="1040" cy="210" r="220" fill="#3ddc97" opacity="0.13" filter="url(#glow)"/>
+  <rect x="90" y="94" width="780" height="520" rx="34" fill="#15191f" stroke="#ffffff" stroke-opacity="0.12"/>
+  <rect x="90" y="94" width="780" height="66" rx="34" fill="#20262d"/>
+  <circle cx="132" cy="127" r="13" fill="#ff3b30"/>
+  <circle cx="168" cy="127" r="13" fill="#ffcc00"/>
+  <circle cx="204" cy="127" r="13" fill="#34c759"/>
+  <text x="250" y="136" fill="#aab4bf" font-size="24" font-family="Inter, Arial, sans-serif" font-weight="700">Editor</text>
+  <g font-family="SFMono-Regular, Menlo, monospace" font-size="22">
+    <text x="132" y="218" fill="#59636e">42</text>
+    <rect x="190" y="200" width="520" height="18" rx="9" fill="url(#green)" opacity="0.72"/>
+    <text x="132" y="272" fill="#59636e">43</text>
+    <rect x="190" y="254" width="610" height="18" rx="9" fill="url(#green)" opacity="0.58"/>
+    <text x="132" y="326" fill="#59636e">44</text>
+    <rect x="190" y="308" width="390" height="18" rx="9" fill="#dfe6ee" opacity="0.2"/>
+    <text x="132" y="380" fill="#59636e">45</text>
+    <rect x="190" y="362" width="570" height="18" rx="9" fill="url(#green)" opacity="0.7"/>
+    <text x="132" y="434" fill="#59636e">46</text>
+    <rect x="190" y="416" width="480" height="18" rx="9" fill="#dfe6ee" opacity="0.22"/>
+    <text x="132" y="488" fill="#59636e">47</text>
+    <rect x="190" y="470" width="640" height="18" rx="9" fill="url(#green)" opacity="0.46"/>
+  </g>
+  <rect x="610" y="376" width="690" height="318" rx="34" fill="#101419" stroke="#ffffff" stroke-opacity="0.12"/>
+  <text x="666" y="450" fill="#f2f5f7" font-size="34" font-family="Inter, Arial, sans-serif" font-weight="800">Codex running in background</text>
+  <text x="666" y="502" fill="#aab4bf" font-size="26" font-family="Inter, Arial, sans-serif" font-weight="600">build assets · check tests · wait for approval</text>
+  <g transform="translate(666 550)">
+    <rect width="104" height="34" rx="17" fill="#3ddc97" opacity="0.18"/>
+    <circle cx="24" cy="17" r="9" fill="#3ddc97"/>
+    <text x="48" y="24" fill="#b8f4d8" font-size="20" font-family="Inter, Arial, sans-serif" font-weight="800">LIVE</text>
+  </g>
+  <rect x="160" y="690" width="560" height="156" rx="30" fill="#0f1418" stroke="#3ddc97" stroke-opacity="0.24"/>
+  <text x="210" y="754" fill="#f2f5f7" font-size="32" font-family="Inter, Arial, sans-serif" font-weight="800">Switch context without losing state</text>
+  <text x="210" y="804" fill="#aab4bf" font-size="24" font-family="Inter, Arial, sans-serif" font-weight="600">terminal · docs · browser · editor</text>
+</svg>

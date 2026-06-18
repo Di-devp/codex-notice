@@ -1,8 +1,10 @@
 mod app_state;
 mod channels;
+mod codex_usage;
 mod commands;
 mod domain;
 mod hooks;
+mod pet;
 mod rules;
 mod secret_store;
 mod server;
@@ -108,7 +110,11 @@ pub fn run() {
             commands::resolve_approval,
             commands::get_traffic_widget_status,
             commands::set_traffic_widget_enabled,
-            commands::set_traffic_widget_always_on_top
+            commands::set_traffic_widget_always_on_top,
+            commands::set_traffic_widget_manual_override,
+            commands::get_pet_config,
+            commands::save_pet_config,
+            commands::test_pet_connection
         ])
         .build(tauri::generate_context!())
         .expect("error while building Notice");

@@ -6,13 +6,28 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 
+use crate::codex_usage;
 use crate::domain::{
-    DashboardSummary, EventFilter, NoticeEvent, NoticeEventType, NoticeLevel, Pagination,
-    PendingApproval, Provider, TrafficWidgetStatus,
+    CodexUsageStatus, CodexUsageWindow, DashboardSummary, EventFilter, NoticeEvent,
+    NoticeEventType, NoticeLevel, Pagination, PendingApproval, Provider, TrafficWidgetStatus,
 };
 
 const MIGRATION: &str = include_str!("../../migrations/0001_init.sql");
 const ACTIVE_SESSION_TTL_SECONDS: i64 = 10 * 60;
+const CODEX_USAGE_CURRENT_KEY: &str = "codex_usage_current";
+const TRAFFIC_WIDGET_MANUAL_OVERRIDE_KEY: &str = "traffic_widget_manual_override";
+const TRAFFIC_WIDGET_MANUAL_STATES: &[&str] =
+    &["ready", "running", "waiting", "failed", "complete"];
+
+pub struct TrafficWidgetStatusSnapshot {
+    pub status: TrafficWidgetStatus,
+    pub codex_usage_changed: bool,
+}
+
+pub struct CodexUsageRefresh {
+    pub usage: Option<CodexUsageStatus>,
+    pub changed: bool,
+}
 
 pub async fn initialize(data_dir: &Path) -> anyhow::Result<SqlitePool> {
     tokio::fs::create_dir_all(data_dir).await?;
@@ -290,7 +305,14 @@ pub async fn bool_setting(
 }
 
 pub async fn traffic_widget_status(pool: &SqlitePool) -> anyhow::Result<TrafficWidgetStatus> {
+    Ok(traffic_widget_status_snapshot(pool).await?.status)
+}
+
+pub async fn traffic_widget_status_snapshot(
+    pool: &SqlitePool,
+) -> anyhow::Result<TrafficWidgetStatusSnapshot> {
     expire_stale_pending_approvals(pool).await?;
+    let manual_override = traffic_widget_manual_override(pool).await?;
     let enabled = bool_setting(pool, "traffic_widget_enabled", true).await?;
     let always_on_top = bool_setting(pool, "traffic_widget_always_on_top", true).await?;
     let pending_approvals: i64 = sqlx::query_scalar(
@@ -311,6 +333,7 @@ pub async fn traffic_widget_status(pool: &SqlitePool) -> anyhow::Result<TrafficW
     let waiting_sessions = pending_approvals + session_counts.waiting;
     let failed_sessions = session_counts.failed;
     let active_sessions = session_counts.active;
+    let usage_refresh = refresh_codex_usage_from_latest(pool).await?;
 
     let (color, label, detail) = if failed_sessions > 0 {
         (
@@ -344,7 +367,7 @@ pub async fn traffic_widget_status(pool: &SqlitePool) -> anyhow::Result<TrafficW
         )
     };
 
-    Ok(TrafficWidgetStatus {
+    let mut status = TrafficWidgetStatus {
         enabled,
         always_on_top,
         color: color.to_string(),
@@ -354,6 +377,161 @@ pub async fn traffic_widget_status(pool: &SqlitePool) -> anyhow::Result<TrafficW
         pending_approvals: waiting_sessions,
         today_failures: failed_sessions,
         latest_event_title,
+        codex_usage: usage_refresh.usage,
+        manual_override,
+    };
+    apply_manual_widget_override(&mut status);
+
+    Ok(TrafficWidgetStatusSnapshot {
+        status,
+        codex_usage_changed: usage_refresh.changed,
+    })
+}
+
+pub async fn set_traffic_widget_manual_override(
+    pool: &SqlitePool,
+    manual_state: Option<String>,
+) -> anyhow::Result<()> {
+    let value = manual_state
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let value = match value {
+        Some(value) if TRAFFIC_WIDGET_MANUAL_STATES.contains(&value) => value,
+        Some(value) => anyhow::bail!("unsupported traffic widget manual state: {value}"),
+        None => "",
+    };
+    put_setting(pool, TRAFFIC_WIDGET_MANUAL_OVERRIDE_KEY, value).await
+}
+
+async fn traffic_widget_manual_override(pool: &SqlitePool) -> anyhow::Result<Option<String>> {
+    Ok(get_setting(pool, TRAFFIC_WIDGET_MANUAL_OVERRIDE_KEY)
+        .await?
+        .and_then(|value| {
+            let value = value.trim().to_string();
+            if TRAFFIC_WIDGET_MANUAL_STATES.contains(&value.as_str()) {
+                Some(value)
+            } else {
+                None
+            }
+        }))
+}
+
+fn apply_manual_widget_override(status: &mut TrafficWidgetStatus) {
+    let Some(manual_override) = status.manual_override.as_deref() else {
+        return;
+    };
+
+    status.active_sessions = 0;
+    status.pending_approvals = 0;
+    status.today_failures = 0;
+    status.latest_event_title = None;
+
+    match manual_override {
+        "running" => {
+            status.color = "running".to_string();
+            status.label = "Running".to_string();
+            status.detail = "Manual photo mode: running".to_string();
+            status.active_sessions = 1;
+        }
+        "waiting" => {
+            status.color = "yellow".to_string();
+            status.label = "Waiting".to_string();
+            status.detail = "Manual photo mode: waiting".to_string();
+            status.pending_approvals = 1;
+        }
+        "failed" => {
+            status.color = "red".to_string();
+            status.label = "Needs attention".to_string();
+            status.detail = "Manual photo mode: failed".to_string();
+            status.today_failures = 1;
+        }
+        "complete" => {
+            status.color = "green".to_string();
+            status.label = "Complete".to_string();
+            status.detail = "Manual photo mode: complete".to_string();
+            status.latest_event_title = Some("Codex task finished".to_string());
+        }
+        _ => {
+            status.color = "green".to_string();
+            status.label = "Ready".to_string();
+            status.detail = "Manual photo mode: ready".to_string();
+        }
+    }
+}
+
+pub async fn refresh_codex_usage_from_latest(
+    pool: &SqlitePool,
+) -> anyhow::Result<CodexUsageRefresh> {
+    put_codex_usage_if_changed(pool, codex_usage::latest().await).await
+}
+
+pub async fn put_codex_usage_if_changed(
+    pool: &SqlitePool,
+    latest: Option<CodexUsageStatus>,
+) -> anyhow::Result<CodexUsageRefresh> {
+    let current = current_codex_usage(pool).await?;
+    let Some(latest) = latest else {
+        return Ok(CodexUsageRefresh {
+            usage: current,
+            changed: false,
+        });
+    };
+
+    let changed = current
+        .as_ref()
+        .map(|current| codex_usage_signature(current) != codex_usage_signature(&latest))
+        .unwrap_or(true);
+
+    if changed {
+        put_setting(
+            pool,
+            CODEX_USAGE_CURRENT_KEY,
+            &serde_json::to_string(&latest)?,
+        )
+        .await?;
+        Ok(CodexUsageRefresh {
+            usage: Some(latest),
+            changed: true,
+        })
+    } else {
+        Ok(CodexUsageRefresh {
+            usage: current,
+            changed: false,
+        })
+    }
+}
+
+pub async fn current_codex_usage(pool: &SqlitePool) -> anyhow::Result<Option<CodexUsageStatus>> {
+    let Some(raw) = get_setting(pool, CODEX_USAGE_CURRENT_KEY).await? else {
+        return Ok(None);
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_str(&raw).ok())
+}
+
+fn codex_usage_signature(usage: &CodexUsageStatus) -> String {
+    serde_json::json!({
+        "limitId": usage.limit_id,
+        "limitName": usage.limit_name,
+        "planType": usage.plan_type,
+        "rateLimitReachedType": usage.rate_limit_reached_type,
+        "primary": codex_usage_window_signature(&usage.primary),
+        "secondary": codex_usage_window_signature(&usage.secondary),
+    })
+    .to_string()
+}
+
+fn codex_usage_window_signature(window: &Option<CodexUsageWindow>) -> Option<serde_json::Value> {
+    window.as_ref().map(|window| {
+        serde_json::json!({
+            "usedPercent": window.used_percent,
+            "remainingPercent": window.remaining_percent,
+            "windowMinutes": window.window_minutes,
+            "resetsAt": window.resets_at.map(|value| value.to_rfc3339()),
+        })
     })
 }
 
@@ -614,11 +792,12 @@ fn parse_time(value: String) -> anyhow::Result<DateTime<Utc>> {
 mod tests {
     use super::{
         create_pending_approval, initialize, insert_event, list_events, list_pending_approvals,
-        refresh_runtime_status, touch_session_activity, traffic_widget_status,
-        ACTIVE_SESSION_TTL_SECONDS,
+        put_codex_usage_if_changed, refresh_runtime_status, set_traffic_widget_manual_override,
+        touch_session_activity, traffic_widget_status, ACTIVE_SESSION_TTL_SECONDS,
     };
     use crate::domain::{
-        EventFilter, NoticeEvent, NoticeEventType, NoticeLevel, Pagination, Provider,
+        CodexUsageStatus, CodexUsageWindow, EventFilter, NoticeEvent, NoticeEventType, NoticeLevel,
+        Pagination, Provider,
     };
     use chrono::{Duration, Utc};
     use tempfile::tempdir;
@@ -631,6 +810,75 @@ mod tests {
         let status = traffic_widget_status(&pool).await.unwrap();
         assert_eq!(status.color, "green");
         assert_eq!(status.label, "Ready");
+    }
+
+    #[tokio::test]
+    async fn codex_usage_current_updates_only_when_visible_values_change() {
+        let dir = tempdir().unwrap();
+        let pool = initialize(dir.path()).await.unwrap();
+        let first_usage = usage_status(88.0, 12.0, Utc::now());
+        let same_visible_usage = usage_status(88.0, 12.0, Utc::now() + Duration::minutes(1));
+        let changed_usage = usage_status(87.0, 13.0, Utc::now() + Duration::minutes(2));
+
+        let first = put_codex_usage_if_changed(&pool, Some(first_usage.clone()))
+            .await
+            .unwrap();
+        assert!(first.changed);
+        assert_eq!(
+            first.usage.unwrap().updated_at.to_rfc3339(),
+            first_usage.updated_at.to_rfc3339()
+        );
+
+        let same = put_codex_usage_if_changed(&pool, Some(same_visible_usage))
+            .await
+            .unwrap();
+        assert!(!same.changed);
+        assert_eq!(
+            same.usage.unwrap().updated_at.to_rfc3339(),
+            first_usage.updated_at.to_rfc3339()
+        );
+
+        let changed = put_codex_usage_if_changed(&pool, Some(changed_usage.clone()))
+            .await
+            .unwrap();
+        assert!(changed.changed);
+        assert_eq!(
+            changed.usage.unwrap().updated_at.to_rfc3339(),
+            changed_usage.updated_at.to_rfc3339()
+        );
+    }
+
+    #[tokio::test]
+    async fn traffic_status_can_be_temporarily_overridden_for_photos() {
+        let dir = tempdir().unwrap();
+        let pool = initialize(dir.path()).await.unwrap();
+
+        set_traffic_widget_manual_override(&pool, Some("waiting".to_string()))
+            .await
+            .unwrap();
+        let waiting = traffic_widget_status(&pool).await.unwrap();
+        assert_eq!(waiting.manual_override.as_deref(), Some("waiting"));
+        assert_eq!(waiting.color, "yellow");
+        assert_eq!(waiting.pending_approvals, 1);
+
+        set_traffic_widget_manual_override(&pool, Some("complete".to_string()))
+            .await
+            .unwrap();
+        let complete = traffic_widget_status(&pool).await.unwrap();
+        assert_eq!(complete.manual_override.as_deref(), Some("complete"));
+        assert_eq!(complete.color, "green");
+        assert_eq!(
+            complete.latest_event_title.as_deref(),
+            Some("Codex task finished")
+        );
+
+        set_traffic_widget_manual_override(&pool, None)
+            .await
+            .unwrap();
+        let restored = traffic_widget_status(&pool).await.unwrap();
+        assert_eq!(restored.manual_override, None);
+        assert_eq!(restored.color, "green");
+        assert_eq!(restored.label, "Ready");
     }
 
     #[tokio::test]
@@ -979,6 +1227,32 @@ mod tests {
             .iter()
             .any(|event| event.session_id.as_deref() == Some("session-b")
                 && event.title == "Codex tool failed"));
+    }
+
+    fn usage_status(
+        remaining_percent: f64,
+        used_percent: f64,
+        updated_at: chrono::DateTime<Utc>,
+    ) -> CodexUsageStatus {
+        CodexUsageStatus {
+            limit_id: "codex".to_string(),
+            limit_name: None,
+            primary: Some(CodexUsageWindow {
+                used_percent,
+                remaining_percent,
+                window_minutes: 300,
+                resets_at: None,
+            }),
+            secondary: Some(CodexUsageWindow {
+                used_percent: 59.0,
+                remaining_percent: 41.0,
+                window_minutes: 10080,
+                resets_at: None,
+            }),
+            plan_type: None,
+            rate_limit_reached_type: None,
+            updated_at,
+        }
     }
 
     fn event(level: NoticeLevel) -> NoticeEvent {

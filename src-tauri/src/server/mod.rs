@@ -15,7 +15,7 @@ use crate::channels::feishu;
 use crate::domain::{HookResponse, NoticeEvent, NoticeEventType, NoticeLevel, Provider};
 use crate::rules::redaction::redact;
 use crate::rules::risk::{classify_command, RiskLevel};
-use crate::storage;
+use crate::{codex_usage, pet, storage};
 
 pub async fn run(state: AppState) -> anyhow::Result<()> {
     let app = Router::new()
@@ -49,8 +49,14 @@ async fn codex_webhook(
         );
     }
 
-    match handle_codex_payload(state, payload).await {
-        Ok(response) => (StatusCode::OK, Json(response)),
+    match handle_codex_payload(state.clone(), payload).await {
+        Ok((response, should_sync_pet)) => {
+            refresh_codex_usage_after_hook();
+            if should_sync_pet {
+                sync_pet_status(&state).await;
+            }
+            (StatusCode::OK, Json(response))
+        }
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(HookResponse {
@@ -70,7 +76,10 @@ fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result<HookResponse> {
+async fn handle_codex_payload(
+    state: AppState,
+    payload: Value,
+) -> anyhow::Result<(HookResponse, bool)> {
     let event_name = payload
         .get("hook_event_name")
         .or_else(|| payload.get("hookEventName"))
@@ -106,6 +115,7 @@ async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result
                 );
                 storage::insert_event(&state.pool, &event).await?;
                 send_feishu_if_enabled(&state, &event).await;
+                sync_pet_status(&state).await;
                 let response = wait_for_approval(&state, &approval.id).await?;
                 if response.should_continue {
                     let resumed = event_from_payload(
@@ -118,7 +128,7 @@ async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result
                     );
                     storage::insert_event(&state.pool, &resumed).await?;
                 }
-                return Ok(response);
+                return Ok((response, true));
             }
         }
     }
@@ -151,13 +161,17 @@ async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result
                 .or_else(|| payload.get("exit_code"))
                 .and_then(Value::as_i64);
             if exit_code.unwrap_or(0) == 0 {
-                resume_after_approval_if_needed(&state, &payload).await?;
+                let resumed_from_approval =
+                    resume_after_approval_if_needed(&state, &payload).await?;
                 touch_session_activity(&state, event_name, &payload).await?;
-                return Ok(HookResponse {
-                    should_continue: true,
-                    stop_reason: None,
-                    suppress_output: Some(true),
-                });
+                return Ok((
+                    HookResponse {
+                        should_continue: true,
+                        stop_reason: None,
+                        suppress_output: Some(true),
+                    },
+                    resumed_from_approval,
+                ));
             } else {
                 (
                     NoticeEventType::TaskFail,
@@ -167,13 +181,16 @@ async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result
             }
         }
         "PreToolUse" => {
-            resume_after_approval_if_needed(&state, &payload).await?;
+            let resumed_from_approval = resume_after_approval_if_needed(&state, &payload).await?;
             touch_session_activity(&state, event_name, &payload).await?;
-            return Ok(HookResponse {
-                should_continue: true,
-                stop_reason: None,
-                suppress_output: Some(true),
-            });
+            return Ok((
+                HookResponse {
+                    should_continue: true,
+                    stop_reason: None,
+                    suppress_output: Some(true),
+                },
+                resumed_from_approval,
+            ));
         }
         _ => (
             NoticeEventType::Warning,
@@ -198,21 +215,27 @@ async fn handle_codex_payload(state: AppState, payload: Value) -> anyhow::Result
         send_feishu_if_enabled(&state, &event).await;
     }
 
-    Ok(HookResponse {
-        should_continue: true,
-        stop_reason: None,
-        suppress_output: Some(true),
-    })
+    Ok((
+        HookResponse {
+            should_continue: true,
+            stop_reason: None,
+            suppress_output: Some(true),
+        },
+        true,
+    ))
 }
 
-async fn resume_after_approval_if_needed(state: &AppState, payload: &Value) -> anyhow::Result<()> {
+async fn resume_after_approval_if_needed(
+    state: &AppState,
+    payload: &Value,
+) -> anyhow::Result<bool> {
     let session_id = payload
         .get("session_id")
         .or_else(|| payload.get("sessionId"))
         .and_then(Value::as_str);
     let latest = storage::latest_non_stop_event_type(&state.pool, session_id).await?;
     if latest.as_deref() != Some("USER_CONFIRM") {
-        return Ok(());
+        return Ok(false);
     }
 
     let event = event_from_payload(
@@ -224,7 +247,7 @@ async fn resume_after_approval_if_needed(state: &AppState, payload: &Value) -> a
         "Codex task resumed",
     );
     storage::insert_event(&state.pool, &event).await?;
-    Ok(())
+    Ok(true)
 }
 
 async fn touch_session_activity(
@@ -251,6 +274,20 @@ fn should_notify_feishu(
 ) -> bool {
     matches!(event_type, NoticeEventType::UserConfirm)
         || (event_name == "Stop" && matches!(level, NoticeLevel::Success) && !session_has_failures)
+}
+
+async fn sync_pet_status(state: &AppState) {
+    if let Err(error) = pet::sync_current_status(&state.pool).await {
+        eprintln!("Notice pet sync failed: {error}");
+    }
+}
+
+fn refresh_codex_usage_after_hook() {
+    codex_usage::invalidate_cache();
+    tokio::spawn(async {
+        sleep(Duration::from_millis(1500)).await;
+        codex_usage::invalidate_cache();
+    });
 }
 
 async fn send_feishu_if_enabled(state: &AppState, event: &NoticeEvent) {
@@ -449,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn user_prompt_submit_records_task_start_but_successful_tool_use_is_hidden() {
         let state = test_state().await;
-        handle_codex_payload(
+        let (_, should_sync_pet) = handle_codex_payload(
             state.clone(),
             json!({
                 "hook_event_name": "UserPromptSubmit",
@@ -459,7 +496,21 @@ mod tests {
         )
         .await
         .unwrap();
-        handle_codex_payload(
+        assert!(should_sync_pet);
+
+        let (_, should_sync_pet) = handle_codex_payload(
+            state.clone(),
+            json!({
+                "hook_event_name": "PreToolUse",
+                "session_id": "session-1",
+                "tool_input": { "command": "ls" }
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(!should_sync_pet);
+
+        let (_, should_sync_pet) = handle_codex_payload(
             state.clone(),
             json!({
                 "hook_event_name": "PostToolUse",
@@ -469,6 +520,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(!should_sync_pet);
 
         let events = storage::list_events(
             &state.pool,
@@ -493,7 +545,7 @@ mod tests {
     #[tokio::test]
     async fn pre_tool_use_after_permission_request_marks_task_resumed() {
         let state = test_state().await;
-        handle_codex_payload(
+        let (_, should_sync_pet) = handle_codex_payload(
             state.clone(),
             json!({
                 "hook_event_name": "PermissionRequest",
@@ -503,7 +555,9 @@ mod tests {
         )
         .await
         .unwrap();
-        handle_codex_payload(
+        assert!(should_sync_pet);
+
+        let (_, should_sync_pet) = handle_codex_payload(
             state.clone(),
             json!({
                 "hook_event_name": "PreToolUse",
@@ -513,6 +567,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(should_sync_pet);
 
         let events = storage::list_events(
             &state.pool,
