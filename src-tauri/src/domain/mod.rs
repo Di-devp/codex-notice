@@ -198,6 +198,15 @@ pub struct PetConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MochiVoiceConfig {
+    pub enabled: bool,
+    pub serial_port: String,
+    pub asr_url: String,
+    pub last_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HookResponse {
     #[serde(rename = "continue")]
     pub should_continue: bool,

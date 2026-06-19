@@ -11,7 +11,14 @@ import { useEventsStore } from "./stores/events";
 import { useHookStore } from "./stores/hooks";
 import { useTrafficStore } from "./stores/traffic";
 import { api } from "./api";
-import type { AppLocale, NoticeEvent, PendingApproval, PetConfig, TrafficWidgetManualState } from "./types";
+import type {
+  AppLocale,
+  NoticeEvent,
+  PendingApproval,
+  PetConfig,
+  MochiVoiceConfig,
+  TrafficWidgetManualState,
+} from "./types";
 
 const active = ref("dashboard");
 const locale = ref<AppLocale>("en");
@@ -23,6 +30,7 @@ const approvals = useApprovalStore();
 const traffic = useTrafficStore();
 const isWidget = new URLSearchParams(window.location.search).get("widget") === "traffic";
 let refreshTimer: number | undefined;
+let mochiVoiceStatusTimer: number | undefined;
 const autostartEnabled = ref(false);
 const autostartLoading = ref(false);
 const refreshAllLoading = ref(false);
@@ -34,6 +42,12 @@ const petEnabled = ref(false);
 const petLoading = ref(false);
 const petTesting = ref(false);
 const petFeedback = ref("");
+const mochiVoiceConfig = ref<MochiVoiceConfig | null>(null);
+const mochiVoiceEnabled = ref(false);
+const mochiVoiceSerialPort = ref("/dev/cu.usbmodem1301");
+const mochiVoiceAsrUrl = ref("ws://110.42.235.130:10095");
+const mochiVoiceLoading = ref(false);
+const mochiVoiceFeedback = ref("");
 const manualWidgetFeedback = ref("");
 type ManualWidgetSelection = "off" | TrafficWidgetManualState;
 
@@ -112,6 +126,14 @@ const copy = {
     testPet: "Test pet",
     petSaved: "Pet sync saved",
     petTestSent: "Pet test sent",
+    mochiVoiceInput: "Mochi voice input",
+    mochiVoiceDescription: "Hold the hardware button to record, then insert the ASR transcript into the current focused input.",
+    mochiVoiceEnabled: "Enable voice input",
+    mochiVoiceSerialPort: "Serial port",
+    mochiVoiceSerialPlaceholder: "/dev/cu.usbmodem1301",
+    mochiVoiceAsrUrl: "ASR WebSocket URL",
+    mochiVoiceAsrPlaceholder: "ws://110.42.235.130:10095",
+    mochiVoiceSaved: "Voice input saved",
     localServer: "Local server",
     retention: "Database retention: 30 days",
     criticalTimeout: "Critical command timeout: 30 seconds, fail-closed",
@@ -219,6 +241,14 @@ const copy = {
     testPet: "测试桌宠",
     petSaved: "桌宠同步已保存",
     petTestSent: "桌宠测试已发送",
+    mochiVoiceInput: "Mochi 语音输入",
+    mochiVoiceDescription: "按住硬件按钮录音，松开后转写，并把文字输入到当前键盘焦点所在位置。",
+    mochiVoiceEnabled: "开启语音输入",
+    mochiVoiceSerialPort: "串口",
+    mochiVoiceSerialPlaceholder: "/dev/cu.usbmodem1301",
+    mochiVoiceAsrUrl: "ASR WebSocket 地址",
+    mochiVoiceAsrPlaceholder: "ws://110.42.235.130:10095",
+    mochiVoiceSaved: "语音输入已保存",
     localServer: "本地服务",
     retention: "数据库保留：30 天",
     criticalTimeout: "高风险命令超时：30 秒，默认拒绝",
@@ -357,6 +387,9 @@ const trafficTitle = computed(() => {
   return `${trafficLabel.value}: ${trafficDetail.value}.${usage} ${t("widgetTitleSuffix")}`;
 });
 const manualWidgetSelection = computed<ManualWidgetSelection>(() => traffic.status?.manualOverride ?? "off");
+const mochiVoiceStatusText = computed(() => {
+  return [mochiVoiceFeedback.value, mochiVoiceConfig.value?.lastStatus].filter(Boolean).join(" · ");
+});
 const manualWidgetStateOptions = computed<Array<{ label: string; value: ManualWidgetSelection }>>(() => [
   { label: t("manualStateOff"), value: "off" },
   { label: t("manualStateReady"), value: "ready" },
@@ -396,6 +429,7 @@ async function refreshAll(showFeedback = false) {
       traffic.load(),
       loadAutostart(),
       loadPetConfig(),
+      loadMochiVoiceConfig(),
     ]);
     if (showFeedback) refreshFeedback.value = t("refreshDone");
   } catch (error) {
@@ -501,6 +535,44 @@ async function testPetConnection() {
   }
 }
 
+async function loadMochiVoiceConfig(showLoading = true) {
+  if (showLoading) mochiVoiceLoading.value = true;
+  try {
+    mochiVoiceConfig.value = await api.mochiVoiceConfig();
+    mochiVoiceEnabled.value = mochiVoiceConfig.value.enabled;
+    mochiVoiceSerialPort.value = mochiVoiceConfig.value.serialPort;
+    mochiVoiceAsrUrl.value = mochiVoiceConfig.value.asrUrl;
+  } catch (error) {
+    console.error("Notice Mochi voice config load failed", error);
+  } finally {
+    if (showLoading) mochiVoiceLoading.value = false;
+  }
+}
+
+async function saveMochiVoiceConfig() {
+  mochiVoiceLoading.value = true;
+  mochiVoiceFeedback.value = "";
+  try {
+    mochiVoiceConfig.value = await api.saveMochiVoiceConfig(
+      mochiVoiceEnabled.value,
+      mochiVoiceSerialPort.value,
+      mochiVoiceAsrUrl.value,
+    );
+    mochiVoiceEnabled.value = mochiVoiceConfig.value.enabled;
+    mochiVoiceSerialPort.value = mochiVoiceConfig.value.serialPort;
+    mochiVoiceAsrUrl.value = mochiVoiceConfig.value.asrUrl;
+    mochiVoiceFeedback.value = t("mochiVoiceSaved");
+    window.setTimeout(() => {
+      if (mochiVoiceFeedback.value === t("mochiVoiceSaved")) mochiVoiceFeedback.value = "";
+    }, 1500);
+  } catch (error) {
+    console.error("Notice Mochi voice config save failed", error);
+    mochiVoiceFeedback.value = String(error);
+  } finally {
+    mochiVoiceLoading.value = false;
+  }
+}
+
 async function setManualWidgetSelection(value: ManualWidgetSelection) {
   manualWidgetFeedback.value = "";
   try {
@@ -572,10 +644,16 @@ onMounted(async () => {
   }
   await refreshAll();
   refreshTimer = window.setInterval(() => traffic.load(), 4000);
+  mochiVoiceStatusTimer = window.setInterval(() => {
+    if (active.value === "settings" && mochiVoiceEnabled.value) {
+      void loadMochiVoiceConfig(false);
+    }
+  }, 1000);
 });
 
 onBeforeUnmount(() => {
   if (refreshTimer) window.clearInterval(refreshTimer);
+  if (mochiVoiceStatusTimer) window.clearInterval(mochiVoiceStatusTimer);
   document.documentElement.classList.remove("widget-root");
   document.body.classList.remove("widget-body");
 });
@@ -590,7 +668,7 @@ watch(active, async (value) => {
   if (value === "approvals") await approvals.load();
   if (value === "dashboard") await dashboard.load();
   if (value === "settings") {
-    await Promise.all([traffic.load(), loadAutostart(), loadPetConfig()]);
+    await Promise.all([traffic.load(), loadAutostart(), loadPetConfig(), loadMochiVoiceConfig()]);
   }
 });
 </script>
@@ -803,6 +881,43 @@ watch(active, async (value) => {
                       <n-button type="primary" :loading="petLoading" @click="savePetConfig">{{ t("save") }}</n-button>
                       <n-button secondary :loading="petTesting" @click="testPetConnection">{{ t("testPet") }}</n-button>
                       <span class="refresh-feedback">{{ petFeedback || petConfig?.lastStatus }}</span>
+                    </n-space>
+                  </n-form>
+                </div>
+                <div class="setting-block">
+                  <div class="setting-row">
+                    <div>
+                      <strong>{{ t("mochiVoiceInput") }}</strong>
+                      <p>{{ t("mochiVoiceDescription") }}</p>
+                    </div>
+                    <n-switch
+                      v-model:value="mochiVoiceEnabled"
+                      :loading="mochiVoiceLoading"
+                      @update:value="saveMochiVoiceConfig"
+                    />
+                  </div>
+                  <n-form label-placement="top">
+                    <n-form-item :label="t('mochiVoiceSerialPort')">
+                      <n-input
+                        v-model:value="mochiVoiceSerialPort"
+                        :placeholder="t('mochiVoiceSerialPlaceholder')"
+                        @keyup.enter="saveMochiVoiceConfig"
+                      />
+                    </n-form-item>
+                    <n-form-item :label="t('mochiVoiceAsrUrl')">
+                      <n-input
+                        v-model:value="mochiVoiceAsrUrl"
+                        :placeholder="t('mochiVoiceAsrPlaceholder')"
+                        @keyup.enter="saveMochiVoiceConfig"
+                      />
+                    </n-form-item>
+                    <n-space align="center">
+                      <n-button type="primary" :loading="mochiVoiceLoading" @click="saveMochiVoiceConfig">
+                        {{ t("save") }}
+                      </n-button>
+                      <span class="refresh-feedback">
+                        {{ mochiVoiceStatusText }}
+                      </span>
                     </n-space>
                   </n-form>
                 </div>

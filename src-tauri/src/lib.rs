@@ -4,6 +4,7 @@ mod codex_usage;
 mod commands;
 mod domain;
 mod hooks;
+mod mochi_voice;
 mod pet;
 mod rules;
 mod secret_store;
@@ -47,6 +48,7 @@ pub fn run() {
                     Err(error) => eprintln!("Notice traffic widget setting failed: {error}"),
                 }
             });
+            mochi_voice::start(state.clone());
             let show = MenuItemBuilder::with_id("show", "Show Notice").build(app)?;
             let show_widget =
                 MenuItemBuilder::with_id("show_widget", "Show Traffic Widget").build(app)?;
@@ -114,7 +116,9 @@ pub fn run() {
             commands::set_traffic_widget_manual_override,
             commands::get_pet_config,
             commands::save_pet_config,
-            commands::test_pet_connection
+            commands::test_pet_connection,
+            commands::get_mochi_voice_config,
+            commands::save_mochi_voice_config
         ])
         .build(tauri::generate_context!())
         .expect("error while building Notice");

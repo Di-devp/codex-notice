@@ -122,3 +122,10 @@ export interface PetConfig {
   baseUrl?: string;
   lastStatus?: string;
 }
+
+export interface MochiVoiceConfig {
+  enabled: boolean;
+  serialPort: string;
+  asrUrl: string;
+  lastStatus?: string;
+}

@@ -6,10 +6,10 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::app_state::AppState;
 use crate::channels::feishu;
 use crate::domain::{
-    ChannelConfig, DashboardSummary, EventFilter, HookPreview, HookStatus, NoticeEvent, Pagination,
-    PendingApproval, PetConfig, TrafficWidgetStatus,
+    ChannelConfig, DashboardSummary, EventFilter, HookPreview, HookStatus, MochiVoiceConfig,
+    NoticeEvent, Pagination, PendingApproval, PetConfig, TrafficWidgetStatus,
 };
-use crate::{codex_usage, hooks, pet, secret_store, storage};
+use crate::{codex_usage, hooks, mochi_voice, pet, secret_store, storage};
 
 const TRAFFIC_WIDGET_WIDTH: f64 = 232.0;
 const TRAFFIC_WIDGET_HEIGHT: f64 = 76.0;
@@ -318,6 +318,27 @@ pub async fn save_pet_config(
 #[tauri::command]
 pub async fn test_pet_connection(state: State<'_, AppState>) -> Result<String, String> {
     pet::test_connection(&state.pool)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_mochi_voice_config(
+    state: State<'_, AppState>,
+) -> Result<MochiVoiceConfig, String> {
+    mochi_voice::config(&state.pool)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn save_mochi_voice_config(
+    state: State<'_, AppState>,
+    enabled: bool,
+    serial_port: Option<String>,
+    asr_url: Option<String>,
+) -> Result<MochiVoiceConfig, String> {
+    mochi_voice::save_config(&state.pool, enabled, serial_port, asr_url)
         .await
         .map_err(|error| error.to_string())
 }

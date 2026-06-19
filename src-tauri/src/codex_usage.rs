@@ -68,10 +68,13 @@ fn scan_latest_usage() -> anyhow::Result<Option<CodexUsageStatus>> {
 }
 
 fn scan_latest_usage_for_home(home: &Path) -> anyhow::Result<Option<CodexUsageStatus>> {
-    if let Some(status) = read_codexmate_usage(home) {
-        return Ok(Some(status));
-    }
+    let codexmate_status = read_codexmate_usage(home);
+    let transcript_status = scan_transcript_usage(home)?;
 
+    Ok(select_usage_source(codexmate_status, transcript_status))
+}
+
+fn scan_transcript_usage(home: &Path) -> anyhow::Result<Option<CodexUsageStatus>> {
     let mut candidates = UsageCandidates::default();
     for root in [
         home.join(".codex").join("sessions"),
@@ -81,6 +84,30 @@ fn scan_latest_usage_for_home(home: &Path) -> anyhow::Result<Option<CodexUsageSt
     }
 
     Ok(candidates.into_latest())
+}
+
+fn select_usage_source(
+    codexmate_status: Option<CodexUsageStatus>,
+    transcript_status: Option<CodexUsageStatus>,
+) -> Option<CodexUsageStatus> {
+    match (codexmate_status, transcript_status) {
+        (Some(codexmate), Some(transcript)) => {
+            if should_prefer_transcript_usage(&codexmate, &transcript) {
+                Some(transcript)
+            } else {
+                Some(codexmate)
+            }
+        }
+        (Some(codexmate), None) => Some(codexmate),
+        (None, transcript) => transcript,
+    }
+}
+
+fn should_prefer_transcript_usage(
+    codexmate: &CodexUsageStatus,
+    transcript: &CodexUsageStatus,
+) -> bool {
+    transcript.limit_id == "codex" && is_general_limit_stale(codexmate, transcript)
 }
 
 fn read_codexmate_usage(home: &Path) -> Option<CodexUsageStatus> {
@@ -517,12 +544,63 @@ mod tests {
         fs::create_dir_all(&sessions_dir).unwrap();
         fs::write(
             codexmate_dir.join("quota-store.json"),
-            r#"{"items":[{"capturedAt":1781624584,"usageSource":"api","primaryWindow":{"usedPercent":15.0,"remainingPercent":85,"windowMinutes":300,"resetsAt":1781637870},"secondaryWindow":{"usedPercent":60.0,"remainingPercent":40,"windowMinutes":10080,"resetsAt":1781667984}}]}"#,
+            r#"{"items":[{"capturedAt":1781628000,"usageSource":"api","primaryWindow":{"usedPercent":15.0,"remainingPercent":85,"windowMinutes":300,"resetsAt":1781637870},"secondaryWindow":{"usedPercent":60.0,"remainingPercent":40,"windowMinutes":10080,"resetsAt":1781667984}}]}"#,
         )
         .unwrap();
         fs::write(
             sessions_dir.join("session.jsonl"),
             r#"{"timestamp":"2026-06-16T14:35:03.253Z","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":4.0,"window_minutes":300,"resets_at":1781637833},"secondary":{"used_percent":59.0,"window_minutes":10080,"resets_at":1781667984}}}}"#,
+        )
+        .unwrap();
+
+        let status = scan_latest_usage_for_home(home.path()).unwrap().unwrap();
+
+        assert_eq!(status.limit_id, "codex");
+        assert_eq!(status.primary.unwrap().remaining_percent, 85.0);
+        assert_eq!(status.secondary.unwrap().remaining_percent, 40.0);
+    }
+
+    #[test]
+    fn prefers_newer_general_transcript_over_stale_codexmate_quota() {
+        let home = tempfile::tempdir().unwrap();
+        let codexmate_dir = home.path().join(".codex").join("codexmate");
+        let sessions_dir = home.path().join(".codex").join("sessions").join("2026");
+        fs::create_dir_all(&codexmate_dir).unwrap();
+        fs::create_dir_all(&sessions_dir).unwrap();
+        fs::write(
+            codexmate_dir.join("quota-store.json"),
+            r#"{"items":[{"capturedAt":1781624584,"usageSource":"api","primaryWindow":{"usedPercent":5.0,"remainingPercent":95,"windowMinutes":300,"resetsAt":1781637870},"secondaryWindow":{"usedPercent":8.0,"remainingPercent":92,"windowMinutes":10080,"resetsAt":1781667984}}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            sessions_dir.join("session.jsonl"),
+            r#"{"timestamp":"2026-06-19T09:12:42.211Z","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":14.0,"window_minutes":300,"resets_at":1781813562},"secondary":{"used_percent":11.0,"window_minutes":10080,"resets_at":1782212681},"plan_type":"prolite","rate_limit_reached_type":null}}}"#,
+        )
+        .unwrap();
+
+        let status = scan_latest_usage_for_home(home.path()).unwrap().unwrap();
+
+        assert_eq!(status.limit_id, "codex");
+        assert_eq!(status.primary.unwrap().remaining_percent, 86.0);
+        assert_eq!(status.secondary.unwrap().remaining_percent, 89.0);
+        assert_eq!(status.plan_type.as_deref(), Some("prolite"));
+    }
+
+    #[test]
+    fn keeps_codexmate_quota_when_newer_transcript_is_model_specific() {
+        let home = tempfile::tempdir().unwrap();
+        let codexmate_dir = home.path().join(".codex").join("codexmate");
+        let sessions_dir = home.path().join(".codex").join("sessions").join("2026");
+        fs::create_dir_all(&codexmate_dir).unwrap();
+        fs::create_dir_all(&sessions_dir).unwrap();
+        fs::write(
+            codexmate_dir.join("quota-store.json"),
+            r#"{"items":[{"capturedAt":1781624584,"usageSource":"api","primaryWindow":{"usedPercent":15.0,"remainingPercent":85,"windowMinutes":300,"resetsAt":1781637870},"secondaryWindow":{"usedPercent":60.0,"remainingPercent":40,"windowMinutes":10080,"resetsAt":1781667984}}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            sessions_dir.join("session.jsonl"),
+            r#"{"timestamp":"2026-06-19T09:12:46.385Z","payload":{"type":"token_count","rate_limits":{"limit_id":"codex_bengalfox","limit_name":"GPT-5.3-Codex-Spark","primary":{"used_percent":0.0,"window_minutes":300,"resets_at":1781813566},"secondary":{"used_percent":0.0,"window_minutes":10080,"resets_at":1782212681},"plan_type":"prolite","rate_limit_reached_type":null}}}"#,
         )
         .unwrap();
 

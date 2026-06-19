@@ -11,6 +11,7 @@ import type {
   TrafficWidgetStatus,
   AppLocale,
   PetConfig,
+  MochiVoiceConfig,
   TrafficWidgetManualState,
 } from "./types";
 
@@ -49,4 +50,7 @@ export const api = {
   savePetConfig: (enabled: boolean, baseUrl?: string) =>
     invoke<PetConfig>("save_pet_config", { enabled, baseUrl }),
   testPetConnection: () => invoke<string>("test_pet_connection"),
+  mochiVoiceConfig: () => invoke<MochiVoiceConfig>("get_mochi_voice_config"),
+  saveMochiVoiceConfig: (enabled: boolean, serialPort?: string, asrUrl?: string) =>
+    invoke<MochiVoiceConfig>("save_mochi_voice_config", { enabled, serialPort, asrUrl }),
 };
